@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatLapTime, parseLapTime, type Lap } from "@/lib/laptime";
+import {
+  formatLapTime,
+  parseLapTime,
+  type Lap,
+  type TrackStats,
+} from "@/lib/laptime";
 
 const STORAGE_KEY = "lap-log:laps";
 const DEFAULT_TRACKS = ["Monza", "Spa", "Silverstone", "Suzuka", "Interlagos"];
@@ -19,6 +24,8 @@ export default function LapLog() {
   // This component only renders in the browser (see LapLogClient),
   // so it's safe to read localStorage right away.
   const [laps, setLaps] = useState<Lap[]>(loadLaps);
+  const [stats, setStats] = useState<TrackStats[]>([]);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   const [track, setTrack] = useState("Monza");
   const [driver, setDriver] = useState("");
@@ -32,6 +39,29 @@ export default function LapLog() {
     } catch {
       // storage blocked, app still works in memory
     }
+  }, [laps]);
+
+  // Ask the server for stats whenever laps change
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ laps }),
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        return res.json();
+      })
+      .then((data: { stats: TrackStats[] }) => {
+        setStats(data.stats);
+        setStatsError(null);
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") setStatsError(err.message);
+      });
+    return () => controller.abort();
   }, [laps]);
 
   const tracks = useMemo(() => {
@@ -98,7 +128,8 @@ export default function LapLog() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Lap Log</h1>
         <p className="mt-1 text-sm opacity-70">
-          Log lap times and see how you&apos;re doing at each track.
+          Log lap times, see your best, average and how consistent you are at
+          each track.
         </p>
       </header>
 
@@ -169,6 +200,48 @@ export default function LapLog() {
           )}
         </div>
       </div>
+
+      {/* Stats from the API */}
+      {statsError && (
+        <p className="mt-4 text-sm text-red-600">
+          Couldn&apos;t load stats: {statsError}
+        </p>
+      )}
+      {stats.length > 0 && (
+        <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {stats.map((s) => (
+            <div
+              key={s.track}
+              className="rounded-xl border border-black/10 p-4 dark:border-white/15"
+            >
+              <h2 className="font-semibold">{s.track}</h2>
+              <dl className="mt-2 grid grid-cols-2 gap-y-1 text-sm">
+                <dt className="opacity-60">Best</dt>
+                <dd className="font-mono">
+                  {formatLapTime(s.bestMs)}{" "}
+                  <span className="opacity-60">({s.bestDriver})</span>
+                </dd>
+                <dt className="opacity-60">Average</dt>
+                <dd className="font-mono">{formatLapTime(s.avgMs)}</dd>
+                <dt className="opacity-60">Laps</dt>
+                <dd>{s.laps}</dd>
+                <dt className="opacity-60">Consistency</dt>
+                <dd>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 flex-1 rounded bg-black/10 dark:bg-white/15">
+                      <div
+                        className="h-2 rounded bg-emerald-500"
+                        style={{ width: `${s.consistency}%` }}
+                      />
+                    </div>
+                    <span className="w-8 text-right">{s.consistency}</span>
+                  </div>
+                </dd>
+              </dl>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Lap table */}
       <section className="mt-6">
