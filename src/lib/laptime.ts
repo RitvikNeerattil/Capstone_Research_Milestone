@@ -43,6 +43,12 @@ export function formatLapTime(ms: number): string {
   return minutes > 0 ? `${minutes}:${secStr}` : seconds.toFixed(3);
 }
 
+// "+0.412" or "-0.120"
+export function formatDelta(ms: number): string {
+  const sign = ms >= 0 ? "+" : "-";
+  return `${sign}${(Math.abs(ms) / 1000).toFixed(3)}`;
+}
+
 export function computeStats(laps: Lap[]): TrackStats[] {
   const byTrack = new Map<string, Lap[]>();
   for (const lap of laps) {

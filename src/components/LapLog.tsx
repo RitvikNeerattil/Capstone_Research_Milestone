@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  formatDelta,
   formatLapTime,
   parseLapTime,
   type Lap,
@@ -31,6 +32,8 @@ export default function LapLog() {
   const [driver, setDriver] = useState("");
   const [time, setTime] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>("All");
+  const [flash, setFlash] = useState<string | null>(null);
 
   // Save whenever laps change
   useEffect(() => {
@@ -69,11 +72,23 @@ export default function LapLog() {
     return [...set].sort();
   }, [laps]);
 
-  // Fastest laps first
-  const sortedLaps = useMemo(() => [...laps].sort((a, b) => a.ms - b.ms), [laps]);
+  const bestByTrack = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of stats) map.set(s.track, s.bestMs);
+    return map;
+  }, [stats]);
+
+  const visibleLaps = useMemo(() => {
+    const list = filter === "All" ? laps : laps.filter((l) => l.track === filter);
+    return [...list].sort((a, b) => a.ms - b.ms);
+  }, [laps, filter]);
+
+  const visibleStats =
+    filter === "All" ? stats : stats.filter((s) => s.track === filter);
 
   function addLap(e: React.FormEvent) {
     e.preventDefault();
+    setFlash(null);
     const ms = parseLapTime(time);
     const trackName = track.trim();
     const driverName = driver.trim();
@@ -83,6 +98,7 @@ export default function LapLog() {
     if (ms === null)
       return setFormError('Time should look like "1:23.456" or "83.456".');
 
+    const previousBest = bestByTrack.get(trackName);
     setLaps((prev) => [
       ...prev,
       {
@@ -95,7 +111,18 @@ export default function LapLog() {
     ]);
     setTime("");
     setFormError(null);
+    if (previousBest === undefined || ms < previousBest) {
+      setFlash(`New best at ${trackName}: ${formatLapTime(ms)}`);
+    } else {
+      setFlash(`${formatDelta(ms - previousBest)} off the best at ${trackName}`);
+    }
   }
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 3000);
+    return () => clearTimeout(t);
+  }, [flash]);
 
   function removeLap(id: string) {
     setLaps((prev) => prev.filter((l) => l.id !== id));
@@ -121,6 +148,7 @@ export default function LapLog() {
         createdAt: Date.now() + i,
       }))
     );
+    setFilter("All");
   }
 
   return (
@@ -181,8 +209,27 @@ export default function LapLog() {
         )}
       </form>
 
-      {/* Actions */}
+      {flash && (
+        <p className="mt-3 rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+          {flash}
+        </p>
+      )}
+
+      {/* Filter + actions */}
       <div className="mt-8 flex flex-wrap items-center gap-2">
+        {["All", ...stats.map((s) => s.track)].map((t) => (
+          <button
+            key={t}
+            onClick={() => setFilter(t)}
+            className={`rounded-full px-3 py-1 text-sm ${
+              filter === t
+                ? "bg-foreground text-background"
+                : "border border-black/15 dark:border-white/20"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
         <div className="ml-auto flex gap-2">
           <button
             onClick={loadSample}
@@ -207,9 +254,9 @@ export default function LapLog() {
           Couldn&apos;t load stats: {statsError}
         </p>
       )}
-      {stats.length > 0 && (
+      {visibleStats.length > 0 && (
         <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {stats.map((s) => (
+          {visibleStats.map((s) => (
             <div
               key={s.track}
               className="rounded-xl border border-black/10 p-4 dark:border-white/15"
@@ -245,7 +292,7 @@ export default function LapLog() {
 
       {/* Lap table */}
       <section className="mt-6">
-        {sortedLaps.length === 0 ? (
+        {visibleLaps.length === 0 ? (
           <p className="text-sm opacity-60">
             No laps yet. Add one above or load the sample data.
           </p>
@@ -257,30 +304,42 @@ export default function LapLog() {
                 <th>Track</th>
                 <th>Driver</th>
                 <th>Time</th>
+                <th>Delta</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {sortedLaps.map((lap, i) => (
-                <tr
-                  key={lap.id}
-                  className="border-b border-black/5 dark:border-white/10"
-                >
-                  <td className="py-2 opacity-60">{i + 1}</td>
-                  <td>{lap.track}</td>
-                  <td>{lap.driver}</td>
-                  <td className="font-mono">{formatLapTime(lap.ms)}</td>
-                  <td className="text-right">
-                    <button
-                      onClick={() => removeLap(lap.id)}
-                      className="opacity-50 hover:opacity-100"
-                      aria-label="Delete lap"
+              {visibleLaps.map((lap, i) => {
+                const best = bestByTrack.get(lap.track);
+                const delta = best !== undefined ? lap.ms - best : 0;
+                return (
+                  <tr
+                    key={lap.id}
+                    className="border-b border-black/5 dark:border-white/10"
+                  >
+                    <td className="py-2 opacity-60">{i + 1}</td>
+                    <td>{lap.track}</td>
+                    <td>{lap.driver}</td>
+                    <td className="font-mono">{formatLapTime(lap.ms)}</td>
+                    <td
+                      className={`font-mono ${
+                        delta === 0 ? "text-purple-600 dark:text-purple-400" : "opacity-70"
+                      }`}
                     >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {delta === 0 ? "BEST" : formatDelta(delta)}
+                    </td>
+                    <td className="text-right">
+                      <button
+                        onClick={() => removeLap(lap.id)}
+                        className="opacity-50 hover:opacity-100"
+                        aria-label="Delete lap"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
