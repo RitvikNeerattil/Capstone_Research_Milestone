@@ -1,4 +1,4 @@
-import LapLog from "@/components/LapLog";
+import LapLog from "@/components/LapLogClient";
 
 export default function Home() {
   return (

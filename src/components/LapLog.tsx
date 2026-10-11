@@ -1,17 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatLapTime, parseLapTime, type Lap } from "@/lib/laptime";
 
+const STORAGE_KEY = "lap-log:laps";
 const DEFAULT_TRACKS = ["Monza", "Spa", "Silverstone", "Suzuka", "Interlagos"];
 
+function loadLaps(): Lap[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Lap[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function LapLog() {
-  const [laps, setLaps] = useState<Lap[]>([]);
+  // This component only renders in the browser (see LapLogClient),
+  // so it's safe to read localStorage right away.
+  const [laps, setLaps] = useState<Lap[]>(loadLaps);
 
   const [track, setTrack] = useState("Monza");
   const [driver, setDriver] = useState("");
   const [time, setTime] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Save whenever laps change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(laps));
+    } catch {
+      // storage blocked, app still works in memory
+    }
+  }, [laps]);
 
   const tracks = useMemo(() => {
     const set = new Set([...DEFAULT_TRACKS, ...laps.map((l) => l.track)]);
@@ -48,6 +69,28 @@ export default function LapLog() {
 
   function removeLap(id: string) {
     setLaps((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  function loadSample() {
+    const sample: [string, string, string][] = [
+      ["Monza", "Ritvik", "1:21.874"],
+      ["Monza", "Ritvik", "1:22.310"],
+      ["Monza", "Alex", "1:21.602"],
+      ["Monza", "Ritvik", "1:22.045"],
+      ["Spa", "Ritvik", "1:46.221"],
+      ["Spa", "Alex", "1:47.090"],
+      ["Spa", "Ritvik", "1:45.988"],
+      ["Suzuka", "Alex", "1:31.455"],
+    ];
+    setLaps(
+      sample.map(([t, d, time], i) => ({
+        id: crypto.randomUUID(),
+        track: t,
+        driver: d,
+        ms: parseLapTime(time)!,
+        createdAt: Date.now() + i,
+      }))
+    );
   }
 
   return (
@@ -107,10 +150,32 @@ export default function LapLog() {
         )}
       </form>
 
+      {/* Actions */}
+      <div className="mt-8 flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={loadSample}
+            className="rounded-md border border-black/15 px-3 py-1 text-sm dark:border-white/20"
+          >
+            Load sample data
+          </button>
+          {laps.length > 0 && (
+            <button
+              onClick={() => setLaps([])}
+              className="rounded-md border border-black/15 px-3 py-1 text-sm dark:border-white/20"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Lap table */}
-      <section className="mt-8">
+      <section className="mt-6">
         {sortedLaps.length === 0 ? (
-          <p className="text-sm opacity-60">No laps yet. Add one above.</p>
+          <p className="text-sm opacity-60">
+            No laps yet. Add one above or load the sample data.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
